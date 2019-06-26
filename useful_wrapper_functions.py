@@ -1,11 +1,7 @@
 import pandas
 import numpy
 from sklearn import linear_model
-import matplotlib.pyplot as plt
 
-def get_data(path):
-    data = pandas.read_csv(path, header=None)
-    return data
 
 def fit_GDregression(x, y, n_iter=100, alpha=0.0001,typ=None, los=None):
     '''
@@ -16,13 +12,13 @@ def fit_GDregression(x, y, n_iter=100, alpha=0.0001,typ=None, los=None):
         regression.fit(x,y)
         coef_array = numpy.hstack((regression.intercept_, regression.coef_))
         linear_func = numpy.poly1d(coef_array[::-1])
-        print numpy.poly1d(linear_func)
-        print 'R squre is: ' + str(regression.score(x,y))
+        print(numpy.poly1d(linear_func))
+        print('R squre is: ' + str(regression.score(x,y)))
         return regression.predict(x)
     elif typ == 'log':
         regression = linear_model.SGDClassifier(n_iter=n_iter, alpha=alpha, loss=los)
         regression.fit(x,y)
-        print 'accuracy is: ' + str(regression.score(x,y))
+        print('accuracy is: ' + str(regression.score(x,y)))
         return regression
     
 def normal_equation(x, y):

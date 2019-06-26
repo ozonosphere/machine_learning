@@ -1,0 +1,12 @@
+.idea
+*.iml
+**/node_modules
+**/.cache
+**__pycache__**
+**.egg-info**
+*.py~
+#*.py*
+**py#
+.#*.py*
+**/*.pyc
+.ipynb_checkpoints
