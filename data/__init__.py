@@ -24,6 +24,7 @@ def get_data_from_mat(file_name):
     data = loadmat(full_file_path)
     return data
 
+
 if __name__ == '__main__':
     test = get_data_from_mat('ex3data1.mat')
     print(test)
