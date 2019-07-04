@@ -38,11 +38,16 @@ def convert_data_to_dict_of_array(data_tuple: tuple) -> dict:
             'y_variables_by_class': training_y_variable_arrays, 'testing_x_variables': testing_x_variable_array,
             'testing_y_variables': testing_y_variables}
 
-class LogisticRegression(object):
+class MachineLearningAlgos(object):
+    def __init__(self):
+        pass
+
+class LogisticRegression(MachineLearningAlgos):
     # This Regression is specifically designed for classification as the cost function is the log function (convex function)
     # The cost function can be others to solve different problems
-    def __init__(self, x_variables, y_variables, y_variables_by_class, learning_rate, testing_x_variables=None, testing_y_variables=None,
-                 regularized_lambda=0.0, number_of_iteration=1000):
+    def __init__(self, x_variables: array, y_variables: array, y_variables_by_class: dict, learning_rate: float, testing_x_variables: array=None, testing_y_variables: array=None,
+                 regularized_lambda: float=0.0, number_of_iteration: int=1000):
+        super().__init__()
         self.y_variables_by_class = y_variables_by_class # dictionary of class index with corresponding y_variables array (binary, 1 and 0)
         self.number_of_class = len(self.y_variables_by_class)
         self.x_variables = x_variables
@@ -132,6 +137,120 @@ class LogisticRegression(object):
             self.testing_predicted_y = self.testing_probability_by_class_index_df.idxmax(axis='columns').values
             self.testing_accuracy = numpy.sum(self.testing_y_variables == self.testing_predicted_y) / len(self.testing_y_variables)
             print('Testing accuracy is: ' + str(self.testing_accuracy))
+
+
+class NeuralNetwork(MachineLearningAlgos):
+    def __init__(self, no_of_nodes_in_layers: dict, input_layer_x_variables: array,
+                 output_layer_y_variables: array, learning_rate: float, testing_x_variables: array=None,
+                 testing_y_variables: array=None, regularized_lambda: float=0.0, cost_function: str='log'):
+        super().__init__()
+        self.number_of_output_classes = len(numpy.unique(output_layer_y_variables))
+        self.number_of_layers = max(no_of_nodes_in_layers.keys())
+        self.no_of_nodes_in_layers = no_of_nodes_in_layers #s structure of {layer number: number of nodes (excluding bias), ...}
+        self.no_of_nodes_in_layers[self.number_of_layers] = self.number_of_output_classes
+        self.input_layer_x_variables = input_layer_x_variables
+        self.output_layer_y_variables = output_layer_y_variables  # 1d array (number of datapoints, )
+        self.testing_x_variables = testing_x_variables
+        self.testing_y_variables = testing_y_variables
+        self.regularized_lambda = regularized_lambda
+        self.learning_rate = learning_rate
+        self.cost_function = cost_function
+        self.optimal_weights_by_layer_number = {}
+        self.bias_terms_by_layer_number = {}
+        # Activation values by layer number with bias appended
+        self.activation_values_by_layer_number = {1: self.add_bias_ones_to_activations(input_layer_x_variables, numpy.ones((input_layer_x_variables.shape[0], 1)))}
+        self.error_by_layer_number = {}
+        self.derivatives_of_cost_vs_weights_by_layer = {}
+        self.activation_derivatives_by_layer_number = {}
+
+    def add_bias_ones_to_activations(self, array, bias_term_array):
+        # array with shape (number of datapoints, number of features)
+        return numpy.append(array[:, ::-1], bias_term_array, axis=1)[:, ::-1]
+
+    def initializing_weights(self):
+        for layer_number, no_of_nodes in self.no_of_nodes_in_layers.items():
+            self.bias_terms_by_layer_number[layer_number] = numpy.ones((no_of_nodes, 1))
+            if layer_number == 1:
+                pass
+            else:
+                no_of_nodes_previous_layer = self.no_of_nodes_in_layers[layer_number - 1]
+                self.optimal_weights_by_layer_number[layer_number] = numpy.random.randn(no_of_nodes, no_of_nodes_previous_layer)\
+                                                                     * numpy.sqrt(2 / (no_of_nodes + no_of_nodes_previous_layer))
+
+    def eval_activations_by_feeding_forward(self):
+        for layer_number in range(2, self.number_of_layers + 1):
+            bias_appended_weights = self.add_bias_ones_to_activations(self.optimal_weights_by_layer_number[layer_number],
+                                                                      self.bias_terms_by_layer_number[layer_number])
+            self.activation_values_by_layer_number[layer_number] = self.eval_activation_values(self.activation_values_by_layer_number[layer_number - 1], bias_appended_weights)
+
+    def eval_activation_derivatives_by_level(self):
+        for layer_number in range(2, self.number_of_layers + 1):
+            bias_appended_weights = self.add_bias_ones_to_activations(self.optimal_weights_by_layer_number[layer_number],
+                                                                      self.bias_terms_by_layer_number[layer_number])
+            self.activation_derivatives_by_layer_number[layer_number] = self.eval_activation_derivatives(self.activation_values_by_layer_number[layer_number - 1],
+                                                                                                         bias_appended_weights)
+
+    def eval_errors_by_back_propagation(self):
+        for layer_number in reversed(range(2, self.number_of_layers)):
+            self.error_by_layer_number[layer_number] = self.optimal_weights_by_layer_number[layer_number + 1].T.\
+                dot(self.error_by_layer_number[layer_number + 1]) * self.activation_derivatives_by_layer_number[layer_number]
+
+    def eval_cost_derivatives_vs_weights(self):
+        for layer_number in range(2, self.number_of_layers + 1):
+            self.derivatives_of_cost_vs_weights_by_layer[layer_number] = self.error_by_layer_number[layer_number + 1].\
+                dot(self.optimal_weights_by_layer_number[layer_number + 1]) * self.activation_derivatives_by_layer_number[layer_number]
+
+    def eval_activation_values(self, activation_last_layer, weights_current_layer: array) -> array:
+        '''
+        :param weights_current_layer: shape of (number of nodes in current layer, number of nodes in the previous layer) 2d array
+        :param activation_last_layer: shape of (number of datapoints, number of nodes in the previous layer)
+        :return: a 2d array with shape (number of datapoints, number of nodes in the current layer) representing activation values at current layer
+        '''
+        return 1 / (1 + numpy.exp(-(activation_last_layer.dot(weights_current_layer.T))))
+
+    def eval_activation_derivatives(self, activation_previous_layer: array, weights_current_layer: array) -> array:
+        activation_value = self.eval_activation_values(activation_previous_layer, weights_current_layer)
+        return activation_value * (1 - activation_value)
+
+    def eval_output_layer_error(self, activation_previous_layer: array, weights_output_layer: array, y_variables: array) -> array:
+        """
+        :return: shape of (number of datapoints, number of classes)
+        """
+        bias_appended_weights = self.add_bias_ones_to_activations(weights_output_layer,
+                                                                  self.bias_terms_by_layer_number[self.number_of_layers])
+        activation_value_output_layer = self.eval_activation_values(activation_previous_layer, bias_appended_weights)
+        activation_derivatives_output_layer = self.activation_derivatives_by_layer_number[self.number_of_layers]
+        cost_vs_output_activation_derivatives = self.eval_derivative_of_cost_vs_output_activation(activation_value_output_layer, y_variables)
+        result = cost_vs_output_activation_derivatives * activation_derivatives_output_layer
+        self.error_by_layer_number[self.number_of_layers] = result
+
+    def eval_derivative_of_cost_vs_output_activation(self, output_layer_activation: array, y_variables: array):
+        """
+        :param output_layer_activation: shape of (number of datapoints, number of classes)
+        :param y_variables: shape of (number of datapoints, ) 1d array
+        :param cost_function: type of cost function, default to log
+        :return: the derivative of cost function with respect to change in activation shape of (number of datapoints, number of classes)
+        """
+        # First need to convert the original y_variable to a shape of (number of datapoints, number of classes) with
+        # probabilities of 0 or 1
+        if self.cost_function == 'log':
+            unique_classes = numpy.unique(y_variables)
+            # converting actual y data to equivalent probabilities
+            y_variables_mask = numpy.array([y_variables] * self.number_of_output_classes).T
+            class_mask = numpy.array([unique_classes] * y_variables.shape[0])
+            y_variables_prob = (y_variables_mask == class_mask) * 1 # shape of (number of datapoints, number of classes)
+            result = -y_variables_prob / output_layer_activation - (1 - y_variables_prob) / (1 - output_layer_activation)
+            return result
+        else:
+            raise NotImplementedError('Cannot compute derivative for cost vs activation, reason: unknown cost function type.')
+
+    def train(self):
+        pass
+
+    def test(self):
+        pass
+
+
 
 
 if __name__ == '__main__':
