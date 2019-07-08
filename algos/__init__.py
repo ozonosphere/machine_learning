@@ -142,7 +142,8 @@ class LogisticRegression(MachineLearningAlgos):
 class NeuralNetwork(MachineLearningAlgos):
     def __init__(self, layer_structure: dict, training_x_variables: array,
                  training_y_variables: array, learning_rate: float, no_of_training_batches: int=1, testing_x_variables: array=None,
-                 testing_y_variables: array=None, regularized_lambda: float=0.0, cost_function: str='log', **unused):
+                 testing_y_variables: array=None, regularized_lambda: float=0.0, cost_function: str='log',
+                 number_of_iteration: int=1000, **unused):
         super().__init__()
         self.no_of_training_batches = no_of_training_batches
         self.number_of_output_classes = len(numpy.unique(training_y_variables))
@@ -158,13 +159,13 @@ class NeuralNetwork(MachineLearningAlgos):
         self.learning_rate = learning_rate
         self.cost_function = cost_function
         self.optimal_weights_by_layer_number = {}
-        self.bias_terms_by_layer_number = {}
         # Activation values by layer number with bias appended
         self.activation_values_by_layer_number = {}
         self.activation_values_including_ones_by_layer_number = {}
         self.error_by_layer_number = {}
         self.derivatives_of_cost_vs_weights_by_layer = {}
-        self.activation_derivatives_by_layer_number = {}
+        self.activation_derivatives_by_layer_number = {} # Derivatives of activation against z where z = wx (including bias)
+        self.number_of_iteration = number_of_iteration
         self.slice_training_data_into_batches()
         self.initializing_weights()
 
@@ -178,10 +179,10 @@ class NeuralNetwork(MachineLearningAlgos):
             self.output_layer_y_variables_by_batch[batch_number + 1] = y_variable_batches[batch_number]
 
     def append_ones_to_activation(self, x_variables: array):
-        self.activation_values_including_ones_by_layer_number[1] = self.add_bias_ones_to_activations(x_variables)
+        self.activation_values_including_ones_by_layer_number[1] = self.append_bias_ones_to_array(x_variables)
         self.activation_values_by_layer_number[1] = x_variables
 
-    def add_bias_ones_to_activations(self, array):
+    def append_bias_ones_to_array(self, array):
         # array with shape (number of datapoints, number of features)
         ones_array = numpy.ones((array.shape[0], 1))
         return numpy.append(array[:, ::-1], ones_array, axis=1)[:, ::-1]
@@ -192,17 +193,16 @@ class NeuralNetwork(MachineLearningAlgos):
                 pass
             else:
                 no_of_nodes_previous_layer = self.layer_structure[layer_number - 1]
-                self.optimal_weights_by_layer_number[layer_number] = numpy.random.randn(no_of_nodes, no_of_nodes_previous_layer + 1)\
-                                                                     * numpy.sqrt(2 / (no_of_nodes + no_of_nodes_previous_layer + 1))
-                self.bias_terms_by_layer_number[layer_number] = numpy.zeros((self.input_layer_x_variables_by_batch[1].shape[0], no_of_nodes))
+                range_of_rand = 6 ** 0.5 / (no_of_nodes + no_of_nodes_previous_layer) ** 0.5
+                self.optimal_weights_by_layer_number[layer_number] = numpy.random.uniform(-range_of_rand, range_of_rand, size=(no_of_nodes, no_of_nodes_previous_layer + 1))
+                self.optimal_weights_by_layer_number[layer_number][:, 0] = 0.0
 
     def eval_activations_by_feeding_forward(self):
         for layer_number in range(2, self.number_of_layers + 1):
             self.activation_values_by_layer_number[layer_number] = self.eval_activation_values(self.activation_values_including_ones_by_layer_number[layer_number - 1],
-                                                                                               self.optimal_weights_by_layer_number[layer_number],
-                                                                                               self.bias_terms_by_layer_number[layer_number])
+                                                                                               self.optimal_weights_by_layer_number[layer_number])
             if layer_number != self.number_of_layers:
-                self.activation_values_including_ones_by_layer_number[layer_number] = self.add_bias_ones_to_activations(self.activation_values_by_layer_number[layer_number])
+                self.activation_values_including_ones_by_layer_number[layer_number] = self.append_bias_ones_to_array(self.activation_values_by_layer_number[layer_number])
             else:
                 self.activation_values_including_ones_by_layer_number[layer_number] = self.activation_values_by_layer_number[layer_number]
             self.activation_derivatives_by_layer_number[layer_number] = self.eval_activation_derivatives(self.activation_values_including_ones_by_layer_number[layer_number])
@@ -217,15 +217,17 @@ class NeuralNetwork(MachineLearningAlgos):
         for layer_number in range(2, self.number_of_layers + 1):
             self.derivatives_of_cost_vs_weights_by_layer[layer_number] = (self.activation_values_including_ones_by_layer_number[layer_number - 1].
                                                                           T.dot(self.error_by_layer_number[layer_number])).T
+            if layer_number != self.number_of_layers:
+                self.derivatives_of_cost_vs_weights_by_layer[layer_number] = self.derivatives_of_cost_vs_weights_by_layer[layer_number][1:, :]
 
-    def eval_activation_values(self, activation_last_layer, weights_current_layer: array, bias_current_layer: array) -> array:
+    def eval_activation_values(self, activation_last_layer, weights_current_layer: array) -> array:
         '''
         :param weights_current_layer: shape of (number of nodes in current layer, number of nodes in the previous layer) 2d array
         :param activation_last_layer: shape of (number of datapoints, number of nodes in the previous layer)
         :param bias_current_layer: shape of (number of datapoints, number of nodes in the current layer)
         :return: a 2d array with shape (number of datapoints, number of nodes in the current layer) representing activation values at current layer
         '''
-        return 1 / (1 + numpy.exp(-(activation_last_layer.dot(weights_current_layer.T) + bias_current_layer)))
+        return 1 / (1 + numpy.exp(-(activation_last_layer.dot(weights_current_layer.T))))
 
     def eval_activation_derivatives(self, activation_value: array) -> array:
         return activation_value * (1 - activation_value)
@@ -237,7 +239,7 @@ class NeuralNetwork(MachineLearningAlgos):
         activation_value_output_layer = self.activation_values_by_layer_number[self.number_of_layers]
         activation_derivatives_output_layer = self.activation_derivatives_by_layer_number[self.number_of_layers]
         cost_vs_output_activation_derivatives = self.eval_derivative_of_cost_vs_output_activation(activation_value_output_layer, y_variables)
-        result = cost_vs_output_activation_derivatives * activation_derivatives_output_layer
+        result = cost_vs_output_activation_derivatives  * activation_derivatives_output_layer
         self.error_by_layer_number[self.number_of_layers] = result
 
     def eval_derivative_of_cost_vs_output_activation(self, output_layer_activation: array, y_variables: array):
@@ -255,10 +257,17 @@ class NeuralNetwork(MachineLearningAlgos):
             y_variables_mask = numpy.array([y_variables] * self.number_of_output_classes).T
             class_mask = numpy.array([unique_classes] * y_variables.shape[0])
             y_variables_prob = (y_variables_mask == class_mask) * 1 # shape of (number of datapoints, number of classes)
-            result = -y_variables_prob / output_layer_activation - (1 - y_variables_prob) / (1 - output_layer_activation)
+            # Derivative of cost function against activation
+            result = -y_variables_prob / output_layer_activation + (1 - y_variables_prob) / (1 - output_layer_activation)
             return result
         else:
             raise NotImplementedError('Cannot compute derivative for cost vs activation, reason: unknown cost function type.')
+
+    def regularized_weights(self, weights: array) -> array:
+        weights = numpy.copy(weights)
+        weights[:, 0] = 0
+        weights[:, 1:] = self.regularized_lambda * weights[:, 1:]
+        return weights
 
     def update_weights_and_errors_by_batch(self, batch_number: int):
         self.append_ones_to_activation(self.input_layer_x_variables_by_batch[batch_number])
@@ -266,27 +275,30 @@ class NeuralNetwork(MachineLearningAlgos):
         self.eval_output_layer_error(self.output_layer_y_variables_by_batch[batch_number])
         self.eval_errors_by_back_propagation()
         self.eval_cost_derivatives_vs_weights()
-        learning_rate = self.learning_rate / self.input_layer_x_variables_by_batch[batch_number].shape[0]
+        no_of_samples = self.input_layer_x_variables_by_batch[batch_number].shape[0]
+
         for layer_number in range(2, self.number_of_layers + 1):
+            regularized_weights = self.regularized_weights(self.optimal_weights_by_layer_number[layer_number])
             self.optimal_weights_by_layer_number[layer_number] = self.optimal_weights_by_layer_number[layer_number] - \
-                                                                 learning_rate * self.derivatives_of_cost_vs_weights_by_layer[layer_number]
-            self.bias_terms_by_layer_number[layer_number] = self.bias_terms_by_layer_number[layer_number] - \
-                                                            learning_rate * self.error_by_layer_number[layer_number]
+                                                                 1 / no_of_samples * (self.learning_rate *
+                                                                                      self.derivatives_of_cost_vs_weights_by_layer[layer_number] +
+                                                                                      regularized_weights)
 
     def update_batches(self):
         for batch_number in self.input_layer_x_variables_by_batch:
             self.update_weights_and_errors_by_batch(batch_number)
 
     def train(self):
-        self.update_batches() # Getting optimal weights and bias
-        # ================ Using the entire training set to evaluate output activation =====================
-        self.append_ones_to_activation(self.training_x_variables)
-        self.eval_activations_by_feeding_forward()
-        # ==================================================================================================
-        self.output_layer_training_activation = self.activation_values_by_layer_number[self.number_of_layers]
-        self.training_y_results = self.output_layer_training_activation.argmax(axis=1) + 1
-        accuracy = numpy.sum(self.training_y_variables == self.training_y_results) / len(self.training_y_variables)
-        print('Training accuracy: ' + str(accuracy))
+        for i in range(self.number_of_iteration):
+            self.update_batches() # Getting optimal weights and bias
+            # ================ Using the entire training set to evaluate output activation =====================
+            self.append_ones_to_activation(self.training_x_variables)
+            self.eval_activations_by_feeding_forward()
+            # ==================================================================================================
+            self.output_layer_training_activation = self.activation_values_by_layer_number[self.number_of_layers]
+            self.training_y_results = self.output_layer_training_activation.argmax(axis=1) + 1
+            accuracy = numpy.sum(self.training_y_variables == self.training_y_results) / len(self.training_y_variables)
+            print('Epoch ' + str(i + 1) + ' training accuracy: ' + str(accuracy))
 
     def test(self):
         self.append_ones_to_activation(self.testing_x_variables)
@@ -295,9 +307,6 @@ class NeuralNetwork(MachineLearningAlgos):
         self.testing_y_results = self.output_layer_testing_activation.argmax(axis=1) + 1
         accuracy = numpy.sum(self.testing_y_variables == self.testing_y_results) / len(self.testing_y_variables)
         print('Testing accuracy: ' + str(accuracy))
-
-        #TODO figure out the bias term implications, whether to include them dynamically in the activations and weights or keep a bias term.
-        # Keeping a bias term seem to be not working with multiple batch update...
 
 if __name__ == '__main__':
     training_set_lenth = 4000
@@ -311,6 +320,8 @@ if __name__ == '__main__':
 
     input_data_dictionary['regularized_lambda'] = 0.0
     input_data_dictionary['number_of_iteration'] = 1000
-    input_data_dictionary['learning_rate'] = 0.01
-    log_reg = LogisticRegression(**input_data_dictionary)
-    log_reg.train()
+    input_data_dictionary['learning_rate'] = 1
+    input_data_dictionary['no_of_training_batches'] = 4
+    input_data_dictionary['layer_structure'] = {1: 400, 2: 25, 3: 10}
+    nn = NeuralNetwork(**input_data_dictionary)
+    nn.train()
