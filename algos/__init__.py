@@ -263,6 +263,42 @@ class NeuralNetwork(MachineLearningAlgos):
         else:
             raise NotImplementedError('Cannot compute derivative for cost vs activation, reason: unknown cost function type.')
 
+    def eval_cost_function(self, weights: array, y_variables: array):
+        probability_of_each_sample = self.eval_activation_values(self.training_x_variables, weights) # shape (number of datapoints, number of classes)
+        a = numpy.log(1 - probability_of_each_sample)
+        numpy.place(a, a == -numpy.inf, 0.0)
+        b = numpy.log(probability_of_each_sample)
+        numpy.place(b, b == -numpy.inf, 0.0)
+        total_costs = -y_variables * b - (1 - y_variables) * a
+        number_of_datapoints = len(total_costs)
+        # if regularized_lambda is present, the weight of first feature is used as bias term.
+        total_bias_term = 0
+        for layer, weights in self.optimal_weights_by_layer_number.items():
+            total_bias_term += numpy.sum(numpy.square(weights[:, 1:]))
+        result = numpy.mean(total_costs) + self.regularized_lambda / (2 * number_of_datapoints) * total_bias_term
+        return result
+
+    def get_cost_weights_derivatives_by_approx(self, epsilon: float, weights: array, y_variables: array):
+        upper_range = weights + epsilon # TODO this needs polish and checking
+        lower_range = weights - epsilon
+        derivatives = (self.eval_cost_function(upper_range, y_variables) -  self.eval_cost_function(lower_range, y_variables)) / (2 * epsilon)
+        return derivatives
+
+    def test_back_prop_gradient(self, epsilon: float):
+        self.append_ones_to_activation(self.input_layer_x_variables_by_batch[1])
+        self.eval_activations_by_feeding_forward()
+        self.eval_output_layer_error(self.output_layer_y_variables_by_batch[1])
+        self.eval_errors_by_back_propagation()
+        self.eval_cost_derivatives_vs_weights()
+        for layer_number in range(2, self.number_of_layers + 1):
+            approx_gradient = self.get_cost_weights_derivatives_by_approx(epsilon, self.optimal_weights_by_layer_number[layer_number], self.output_layer_y_variables_by_batch[1])
+            back_prop_gradient = self.derivatives_of_cost_vs_weights_by_layer[layer_number]
+            no_of_inaccurate_gradients = numpy.sum((numpy.abs(approx_gradient - back_prop_gradient)) > 0.001)
+            if no_of_inaccurate_gradients != 0:
+                print(str(no_of_inaccurate_gradients))
+                return False
+        return True
+
     def regularized_weights(self, weights: array) -> array:
         weights = numpy.copy(weights)
         weights[:, 0] = 0
