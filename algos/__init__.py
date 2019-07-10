@@ -142,7 +142,8 @@ class LogisticRegression(MachineLearningAlgos):
 class NeuralNetwork(MachineLearningAlgos):
     def __init__(self, layer_structure: dict, training_x_variables: array,
                  training_y_variables: array, learning_rate: float, no_of_training_batches: int=1, testing_x_variables: array=None,
-                 testing_y_variables: array=None, regularized_lambda: float=0.0, cost_function: str='log',
+                 testing_y_variables: array=None, validation_x_variables: array=None, validation_y_variables: array=None,
+                 regularized_lambda: float=0.0, cost_function: str='log',
                  number_of_iteration: int=1000, **unused):
         super().__init__()
         self.no_of_training_batches = no_of_training_batches
@@ -242,6 +243,14 @@ class NeuralNetwork(MachineLearningAlgos):
         result = cost_vs_output_activation_derivatives  * activation_derivatives_output_layer
         self.error_by_layer_number[self.number_of_layers] = result
 
+    def convert_y_variables_to_binary(self, y_variables: array) -> array:
+        unique_classes = numpy.unique(y_variables)
+        # converting actual y data to equivalent probabilities
+        y_variables_mask = numpy.array([y_variables] * self.number_of_output_classes).T
+        class_mask = numpy.array([unique_classes] * y_variables.shape[0])
+        y_variables_prob = (y_variables_mask == class_mask) * 1  # shape of (number of datapoints, number of classes)
+        return y_variables_prob
+
     def eval_derivative_of_cost_vs_output_activation(self, output_layer_activation: array, y_variables: array):
         """
         :param output_layer_activation: shape of (number of datapoints, number of classes)
@@ -252,19 +261,16 @@ class NeuralNetwork(MachineLearningAlgos):
         # First need to convert the original y_variable to a shape of (number of datapoints, number of classes) with
         # probabilities of 0 or 1
         if self.cost_function == 'log':
-            unique_classes = numpy.unique(y_variables)
-            # converting actual y data to equivalent probabilities
-            y_variables_mask = numpy.array([y_variables] * self.number_of_output_classes).T
-            class_mask = numpy.array([unique_classes] * y_variables.shape[0])
-            y_variables_prob = (y_variables_mask == class_mask) * 1 # shape of (number of datapoints, number of classes)
+            y_variables_prob = self.convert_y_variables_to_binary(y_variables)
             # Derivative of cost function against activation
             result = -y_variables_prob / output_layer_activation + (1 - y_variables_prob) / (1 - output_layer_activation)
             return result
         else:
             raise NotImplementedError('Cannot compute derivative for cost vs activation, reason: unknown cost function type.')
 
-    def eval_cost_function(self, weights: array, y_variables: array):
-        probability_of_each_sample = self.eval_activation_values(self.training_x_variables, weights) # shape (number of datapoints, number of classes)
+    def eval_cost_function(self, activation_values: array, y_variables: array):
+        probability_of_each_sample = activation_values # shape (number of datapoints, number of classes)
+        y_variables = self.convert_y_variables_to_binary(y_variables)
         a = numpy.log(1 - probability_of_each_sample)
         numpy.place(a, a == -numpy.inf, 0.0)
         b = numpy.log(probability_of_each_sample)
